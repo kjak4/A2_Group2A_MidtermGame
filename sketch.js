@@ -9,18 +9,36 @@ let imgSign, imgPlatform, imgPlatform2, imgSpikes, imgFinishSign;
 // ── Sound variables ────────────────────────────────────────
 let sndMusic, sndJump, sndDamage, sndWin, sndWalk;
 let walkSoundTimer = 0;
-let soundsLoaded   = false;
+let audioStarted    = false;   // has the AudioContext been resumed yet?
 
-function tryLoadSounds() {
-  if (soundsLoaded || typeof loadSound === 'undefined') return;
-  soundsLoaded = true;
-  try {
-    sndMusic  = loadSound('sounds/music.mp3',   ()=>{ if(sndMusic) { sndMusic.setVolume(0.4); sndMusic.loop(); } }, ()=>{ sndMusic=null; });
-    sndJump   = loadSound('sounds/jump.mp3',    ()=>{}, ()=>{ sndJump=null; });
-    sndDamage = loadSound('sounds/damage.mp3',  ()=>{}, ()=>{ sndDamage=null; });
-    sndWin    = loadSound('sounds/win.mp3',     ()=>{}, ()=>{ sndWin=null; });
-    sndWalk   = loadSound('sounds/walking.mp3', ()=>{}, ()=>{ sndWalk=null; });
-  } catch(e) { soundsLoaded=false; }
+// Loading the sound FILES doesn't need the AudioContext running —
+// only actually *playing* them does. So they're loaded in preload()
+// like everything else, guaranteeing they're ready by the time the
+// game starts (no more racing the first jump/keypress).
+function loadSounds() {
+  if (typeof loadSound === 'undefined') return;   // p5.sound not included — bail safely
+  // every call gets a success + error callback so a single missing/broken
+  // sound file can NOT hang preload() forever (which would block setup()
+  // from ever running — createCanvas lives there, so that means a blank screen)
+  sndMusic  = loadSound('sounds/music.mp3',   () => {}, () => { console.warn('music.mp3 failed to load');   sndMusic  = null; });
+  sndJump   = loadSound('sounds/jump.mp3',    () => {}, () => { console.warn('jump.mp3 failed to load');    sndJump   = null; });
+  sndDamage = loadSound('sounds/damage.mp3',  () => {}, () => { console.warn('damage.mp3 failed to load');  sndDamage = null; });
+  sndWin    = loadSound('sounds/win.mp3',     () => {}, () => { console.warn('win.mp3 failed to load');     sndWin    = null; });
+  sndWalk   = loadSound('sounds/walking.mp3', () => {}, () => { console.warn('walking.mp3 failed to load'); sndWalk   = null; });
+}
+
+// Browsers block audio until a real user gesture (keypress/click)
+// resumes the AudioContext. This is almost always why sounds "don't
+// work" even though everything else is wired up correctly — the
+// files load fine, but .play() is silently ignored until this runs.
+function startAudioOnce() {
+  if (audioStarted) return;
+  audioStarted = true;
+  if (typeof userStartAudio === 'function') userStartAudio();
+  if (sndMusic && sndMusic.isLoaded()) {
+    sndMusic.setVolume(0.4);
+    sndMusic.loop();
+  }
 }
 
 const NUM_FRAMES = 5;
@@ -104,6 +122,14 @@ function preload() {
   imgPlatform2 = loadImage('assets/images/platform2.png');
   imgSpikes    = loadImage('assets/images/spikes.png');
   imgFinishSign= loadImage('assets/images/youmadeit.png');
+
+  // NOTE: sounds are deliberately NOT loaded here. p5.sound's preload
+  // tracking does not reliably resolve on a failed/missing file even
+  // with an error callback, which can hang preload() forever and
+  // block setup() — and therefore createCanvas() — from ever running.
+  // Sounds are loaded separately in setup() instead, fully decoupled
+  // from preload's blocking wait. Every .play()/.stop() call already
+  // checks .isLoaded(), so this is safe even if a file never arrives.
 }
 
 function setup() {
@@ -111,6 +137,7 @@ function setup() {
   imageMode(CORNER);
   charX = width * 0.25;
   charY = groundY();
+  loadSounds();   // decoupled from preload — can't block canvas creation
 }
 
 function windowResized() {
@@ -138,7 +165,7 @@ function draw() {
   // Jump sound
   if ((keyIsDown(32)||keyIsDown(87)||keyIsDown(38)) && onGround) {
     velY=JUMP_FORCE; onGround=false;
-    if (sndJump) { sndJump.stop(); sndJump.play(); }
+    if (sndJump && sndJump.isLoaded()) { sndJump.stop(); sndJump.play(); }
   }
 
   // Walking sound
@@ -146,7 +173,7 @@ function draw() {
     walkSoundTimer++;
     if (walkSoundTimer >= 22) {
       walkSoundTimer = 0;
-      if (sndWalk && !sndWalk.isPlaying()) sndWalk.play();
+      if (sndWalk && sndWalk.isLoaded() && !sndWalk.isPlaying()) sndWalk.play();
     }
   } else { walkSoundTimer = 0; }
 
@@ -182,12 +209,12 @@ function draw() {
 
   if (worldX >= LEVEL_END) {
     gameWon=true;
-    if (sndWin) sndWin.play();
-    if (sndMusic) sndMusic.stop();
+    if (sndWin && sndWin.isLoaded()) sndWin.play();
+    if (sndMusic && sndMusic.isLoaded()) sndMusic.stop();
     return;
   }
   levelTimer++;
-  if (levelTimer >= TIME_LIMIT) { gameLost=true; if (sndMusic) sndMusic.stop(); return; }
+  if (levelTimer >= TIME_LIMIT) { gameLost=true; if (sndMusic && sndMusic.isLoaded()) sndMusic.stop(); return; }
   if (invTimer > 0) invTimer--;
   else checkDamage();
 
@@ -402,7 +429,7 @@ function checkDamage() {
   let worldPlayerX=worldX;
   let inPitX=worldPlayerX+width*0.25>PIT_START+60&&worldPlayerX+width*0.25<PIT_END-60;
   let fallingIn=!onGround&&charY>gy-height*0.10&&velY>2;
-  if (inPitX&&fallingIn) { gameLost=true; if (sndMusic) sndMusic.stop(); return; }
+  if (inPitX&&fallingIn) { gameLost=true; if (sndMusic && sndMusic.isLoaded()) sndMusic.stop(); return; }
 
   if (charY<gy-height*0.05) return;
 
@@ -427,8 +454,8 @@ function checkDamage() {
 
 function takeDamage() {
   hp--; invTimer=INV_FRAMES;
-  if (sndDamage) { sndDamage.stop(); sndDamage.play(); }
-  if (hp<=0) { hp=0; gameLost=true; if (sndMusic) sndMusic.stop(); }
+  if (sndDamage && sndDamage.isLoaded()) { sndDamage.stop(); sndDamage.play(); }
+  if (hp<=0) { hp=0; gameLost=true; if (sndMusic && sndMusic.isLoaded()) sndMusic.stop(); }
 }
 
 // ─────────────────────────────────────────────────────────
@@ -595,7 +622,7 @@ function drawWinScreen() {
 
 // ─────────────────────────────────────────────────────────
 function keyPressed() {
-  tryLoadSounds();
+  startAudioOnce();
   if (key===' ' && (gameWon||gameLost)) {
     gameWon=false; gameLost=false;
     worldX=0; flipped=false; flipTimer=0; flipIndex=0;
@@ -604,6 +631,12 @@ function keyPressed() {
     velY=0; onGround=true;
     charX=width*0.25; charY=groundY();
     animals.forEach(a=>{a.wx=a.startWx;a.frame=0;a.ft=0;});
-    if (sndMusic) { sndMusic.stop(); sndMusic.loop(); }
+    if (sndMusic && sndMusic.isLoaded()) { sndMusic.stop(); sndMusic.loop(); }
   }
+}
+
+// Some browsers only count a mouse/touch interaction as the
+// unlocking gesture, not a keypress — cover both.
+function mousePressed() {
+  startAudioOnce();
 }
