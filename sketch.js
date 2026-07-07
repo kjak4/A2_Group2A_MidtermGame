@@ -33,7 +33,7 @@ const INV_FRAMES = 80;
 
 // ── Timer ─────────────────────────────────────────────────
 let levelTimer      = 0;
-const TIME_LIMIT    = 90 * 60; // 90 seconds
+const TIME_LIMIT    = 60 * 60; // 90 seconds
 
 // ── Intro ─────────────────────────────────────────────────
 let introTimer = 140;
@@ -89,7 +89,6 @@ function platY(p) { return groundY() - groundY() * p.wyOff; }
 
 // ─────────────────────────────────────────────────────────
 function preload() {
-  imgSky     = loadImage('assets/images/Asset 12.png');
   imgBgTrees = loadImage('assets/images/Asset 11.png');
   imgBushes  = loadImage('assets/images/Asset 9.png');
   imgGround  = loadImage('assets/images/Asset 10.png');
@@ -217,11 +216,71 @@ function tileLayer(img, destH, destY, scrollAmt) {
 
 function drawBG() {
   let bgScroll = min(worldX, LEVEL_END - 800);
-  image(imgSky, 0, 0, width, height);
+
+  // ── Sunset sky — replaces both Asset_12 and the timer bar ──
+  // Progress 0 = start (soft teal morning)
+  // Progress 1 = end (deep blue-grey night, time's up)
+  let progress = levelTimer / TIME_LIMIT;
+
+  // Four sky stages with soft in-between colours
+  // Dawn teal → warm golden → dusty rose → dusk violet → night
+  let skyTop, skyBot;
+  if (progress < 0.35) {
+    let t = progress / 0.35;
+    skyTop = lerpColor(color(118, 158, 158), color(155, 130, 100), t); // teal → warm tan
+    skyBot = lerpColor(color(145, 185, 180), color(210, 175, 120), t); // light teal → amber
+  } else if (progress < 0.65) {
+    let t = (progress - 0.35) / 0.30;
+    skyTop = lerpColor(color(155, 130, 100), color(155, 115, 115), t); // warm tan → dusty rose
+    skyBot = lerpColor(color(210, 175, 120), color(215, 155, 130), t); // amber → soft coral
+  } else if (progress < 0.85) {
+    let t = (progress - 0.65) / 0.20;
+    skyTop = lerpColor(color(155, 115, 115), color( 90,  85, 110), t); // dusty rose → violet dusk
+    skyBot = lerpColor(color(215, 155, 130), color(135, 115, 130), t); // coral → muted mauve
+  } else {
+    let t = (progress - 0.85) / 0.15;
+    skyTop = lerpColor(color( 90,  85, 110), color( 30,  28,  42), t); // violet → near-night
+    skyBot = lerpColor(color(135, 115, 130), color( 55,  48,  65), t); // mauve → dark
+  }
+
+  // Draw gradient top to bottom
+  let skyH = height;
+  noStroke();
+  for (let i = 0; i <= skyH; i++) {
+    let t = i / skyH;
+    stroke(lerpColor(skyTop, skyBot, t));
+    line(0, i, width, i);
+  }
+  noStroke();
+
+  // Soft sun / moon disc
+  let sunProgress = progress;
+  // Sun arcs from bottom-right up to top-centre then sets left
+  let sunAngle = PI + sunProgress * PI; // PI = sunrise right, 2PI = sunset left
+  let sunCx    = width * 0.5 + cos(sunAngle) * width * 0.38;
+  let sunCy    = height * 0.55 - sin(sunAngle) * height * 0.55;
+  let sunR     = height * 0.055;
+  let sunAlpha = progress < 0.8 ? 200 : map(progress, 0.8, 1.0, 200, 60);
+
+  // Glow
+  noStroke();
+  for (let r = sunR * 2.5; r > sunR; r -= sunR * 0.3) {
+    let a = map(r, sunR, sunR*2.5, sunAlpha*0.5, 0);
+    let glowCol = progress < 0.5 ? color(245, 220, 160, a) : color(220, 170, 140, a);
+    fill(glowCol);
+    ellipse(sunCx, sunCy, r*2, r*2);
+  }
+  // Sun disc
+  let sunCol = progress < 0.5 ? color(248, 228, 175, sunAlpha)
+             : progress < 0.8 ? color(235, 185, 130, sunAlpha)
+             :                  color(180, 165, 195, sunAlpha); // moon-ish at night
+  fill(sunCol);
+  ellipse(sunCx, sunCy, sunR*2, sunR*2);
+
   tileLayer(imgBgTrees, height, 0, bgScroll * 0.12);
-  let bushH = height*0.30;
-  tileLayer(imgBushes, bushH, height-bushH-groundH()*0.50, bgScroll*0.04);
-  tileLayer(imgGround, groundH(), height-groundH(), worldX*0.45);
+  let bushH = height * 0.30;
+  tileLayer(imgBushes, bushH, height - bushH - groundH()*0.50, bgScroll * 0.04);
+  tileLayer(imgGround, groundH(), height - groundH(), worldX * 0.45);
 }
 
 function drawFG() { tileLayer(imgFgTrees, height, 0, worldX*1.15); }
@@ -446,19 +505,19 @@ function drawHUD() {
   let pad=width*0.018, hs=height*0.038;
   for (let i=0;i<MAX_HP;i++) drawPixelHeart(pad+i*(hs*1.4), pad, hs, i<hp);
 
-  let timeLeft=max(0,TIME_LIMIT-levelTimer), pct=timeLeft/TIME_LIMIT;
-  let barW=width*0.18, barH=height*0.018;
-  let bx=width-barW-pad, by=pad;
-  noStroke(); fill(20,30,18,180); rect(bx-2,by-2,barW+4,barH+4,3);
-  let bc = pct>0.5 ? lerpColor(color(180,210,80),color(220,180,40),map(pct,1,0.5,0,1))
-         : pct>0.2 ? lerpColor(color(220,180,40),color(210,80,40),map(pct,0.5,0.2,0,1))
-         : color(210,60,40);
-  fill(bc); rect(bx,by,barW*pct,barH,2);
-  stroke(20,30,18,120); strokeWeight(1);
-  for (let t=1;t<6;t++) { let tx=bx+barW*(t/6); line(tx,by,tx,by+barH); }
-  noStroke();
-  fill(190,215,160); textFont('monospace'); textStyle(BOLD); textSize(height*0.016);
-  textAlign(RIGHT,TOP); text('TIME',width-pad,by+barH+3); textStyle(NORMAL);
+  // Subtle darkness warning text when nearly out of time
+  let progress = levelTimer / TIME_LIMIT;
+  if (progress > 0.82) {
+    let a = map(progress, 0.82, 1.0, 0, 200);
+    fill(200, 185, 215, a);
+    textAlign(CENTER, TOP);
+    textFont('Georgia'); textStyle(ITALIC);
+    textSize(height * 0.020);
+    if (floor(frameCount/25)%2===0 || progress < 0.92) {
+      text('the light is fading...', width/2, pad);
+    }
+    textStyle(NORMAL);
+  }
 }
 
 function drawPixelHeart(x,y,s,full) {
