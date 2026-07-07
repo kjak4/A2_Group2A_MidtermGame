@@ -6,6 +6,23 @@ let imgSky, imgBgTrees, imgBushes, imgGround, imgFgTrees;
 let imgSprites, imgLog, imgRock, imgRacoon, imgRabbit;
 let imgSign, imgPlatform, imgPlatform2, imgSpikes, imgFinishSign;
 
+// ── Sound variables ────────────────────────────────────────
+let sndMusic, sndJump, sndDamage, sndWin, sndWalk;
+let walkSoundTimer = 0;
+let soundsLoaded   = false;
+
+function tryLoadSounds() {
+  if (soundsLoaded || typeof loadSound === 'undefined') return;
+  soundsLoaded = true;
+  try {
+    sndMusic  = loadSound('sounds/music.mp3',   ()=>{ if(sndMusic) { sndMusic.setVolume(0.4); sndMusic.loop(); } }, ()=>{ sndMusic=null; });
+    sndJump   = loadSound('sounds/jump.mp3',    ()=>{}, ()=>{ sndJump=null; });
+    sndDamage = loadSound('sounds/damage.mp3',  ()=>{}, ()=>{ sndDamage=null; });
+    sndWin    = loadSound('sounds/win.mp3',     ()=>{}, ()=>{ sndWin=null; });
+    sndWalk   = loadSound('sounds/walking.mp3', ()=>{}, ()=>{ sndWalk=null; });
+  } catch(e) { soundsLoaded=false; }
+}
+
 const NUM_FRAMES = 5;
 const ANIM_SPEED = 7;
 
@@ -26,20 +43,16 @@ const LEVEL_END = 8500;
 let gameWon     = false;
 let gameLost    = false;
 
-// ── HP & damage ───────────────────────────────────────────
 let hp           = 3;
 const MAX_HP     = 3;
 let invTimer     = 0;
 const INV_FRAMES = 80;
 
-// ── Timer ─────────────────────────────────────────────────
 let levelTimer      = 0;
-const TIME_LIMIT    = 90 * 60; // 90 seconds
+const TIME_LIMIT    = 90 * 60;
 
-// ── Intro ─────────────────────────────────────────────────
 let introTimer = 140;
 
-// ── Flip mechanic ─────────────────────────────────────────
 const FLIP_AT       = [700, 5200];
 let   flipIndex     = 0;
 let   flipped       = false;
@@ -49,18 +62,15 @@ let   countdown     = 0;
 let   countdownTimer = 0;
 const COUNTDOWN_FRAMES = 55;
 
-// ── Ground obstacles ──────────────────────────────────────
 const LOGS  = [{ wx:2200 }, { wx:3600 }, { wx:4800 }];
 const ROCKS = [{ wx:1500 }, { wx:2900 }, { wx:4200 }];
 
-// ── Animals ───────────────────────────────────────────────
 let animals = [
   { wx:2600, type:'rabbit', dir: 1, range:110, speed:2.0, frame:0, ft:0 },
   { wx:4000, type:'racoon', dir: 1, range: 90, speed:1.5, frame:0, ft:0 },
 ];
 animals.forEach(a => a.startWx = a.wx);
 
-// ── Platforms ─────────────────────────────────────────────
 const PIT_START  = 5600;
 const PIT_END    = 6400;
 
@@ -73,7 +83,6 @@ const PLATFORMS = [
 const PLAT_W = 115;
 const PLAT_H = 28;
 
-// ── Helpers ───────────────────────────────────────────────
 function groundH() { return height * 0.44; }
 function groundY() { return height - groundH() * 0.5; }
 function toScreen(worldPos) { return worldPos - worldX + charX - width * 0.25; }
@@ -125,7 +134,21 @@ function draw() {
   let goRight = flipped ? (keyIsDown(65)||keyIsDown(37)) : (keyIsDown(68)||keyIsDown(39));
   if (goLeft)  { worldX -= WALK_SPEED; if (worldX<0) worldX=0; facingLeft=true;  isMoving=true; }
   if (goRight) { worldX += WALK_SPEED; facingLeft=false; isMoving=true; }
-  if ((keyIsDown(32)||keyIsDown(87)||keyIsDown(38)) && onGround) { velY=JUMP_FORCE; onGround=false; }
+
+  // Jump sound
+  if ((keyIsDown(32)||keyIsDown(87)||keyIsDown(38)) && onGround) {
+    velY=JUMP_FORCE; onGround=false;
+    if (sndJump) { sndJump.stop(); sndJump.play(); }
+  }
+
+  // Walking sound
+  if (isMoving && onGround) {
+    walkSoundTimer++;
+    if (walkSoundTimer >= 22) {
+      walkSoundTimer = 0;
+      if (sndWalk && !sndWalk.isPlaying()) sndWalk.play();
+    }
+  } else { walkSoundTimer = 0; }
 
   if (isMoving) {
     animTimer++;
@@ -157,9 +180,14 @@ function draw() {
     a.ft++; if (a.ft>=8) { a.ft=0; a.frame=(a.frame+1)%2; }
   }
 
-  if (worldX >= LEVEL_END) { gameWon=true; return; }
+  if (worldX >= LEVEL_END) {
+    gameWon=true;
+    if (sndWin) sndWin.play();
+    if (sndMusic) sndMusic.stop();
+    return;
+  }
   levelTimer++;
-  if (levelTimer >= TIME_LIMIT) { gameLost=true; return; }
+  if (levelTimer >= TIME_LIMIT) { gameLost=true; if (sndMusic) sndMusic.stop(); return; }
   if (invTimer > 0) invTimer--;
   else checkDamage();
 
@@ -374,7 +402,7 @@ function checkDamage() {
   let worldPlayerX=worldX;
   let inPitX=worldPlayerX+width*0.25>PIT_START+60&&worldPlayerX+width*0.25<PIT_END-60;
   let fallingIn=!onGround&&charY>gy-height*0.10&&velY>2;
-  if (inPitX&&fallingIn) { gameLost=true; return; }
+  if (inPitX&&fallingIn) { gameLost=true; if (sndMusic) sndMusic.stop(); return; }
 
   if (charY<gy-height*0.05) return;
 
@@ -397,7 +425,11 @@ function checkDamage() {
   }
 }
 
-function takeDamage() { hp--; invTimer=INV_FRAMES; if (hp<=0) { hp=0; gameLost=true; } }
+function takeDamage() {
+  hp--; invTimer=INV_FRAMES;
+  if (sndDamage) { sndDamage.stop(); sndDamage.play(); }
+  if (hp<=0) { hp=0; gameLost=true; if (sndMusic) sndMusic.stop(); }
+}
 
 // ─────────────────────────────────────────────────────────
 function drawHUD() {
@@ -563,6 +595,7 @@ function drawWinScreen() {
 
 // ─────────────────────────────────────────────────────────
 function keyPressed() {
+  tryLoadSounds();
   if (key===' ' && (gameWon||gameLost)) {
     gameWon=false; gameLost=false;
     worldX=0; flipped=false; flipTimer=0; flipIndex=0;
@@ -571,5 +604,6 @@ function keyPressed() {
     velY=0; onGround=true;
     charX=width*0.25; charY=groundY();
     animals.forEach(a=>{a.wx=a.startWx;a.frame=0;a.ft=0;});
+    if (sndMusic) { sndMusic.stop(); sndMusic.loop(); }
   }
 }
