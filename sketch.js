@@ -20,11 +20,11 @@ function loadSounds() {
   // every call gets a success + error callback so a single missing/broken
   // sound file can NOT hang preload() forever (which would block setup()
   // from ever running — createCanvas lives there, so that means a blank screen)
-  sndMusic  = loadSound('sounds/music.mp3',   () => {}, () => { console.warn('music.mp3 failed to load');   sndMusic  = null; });
-  sndJump   = loadSound('sounds/jump.mp3',    () => {}, () => { console.warn('jump.mp3 failed to load');    sndJump   = null; });
-  sndDamage = loadSound('sounds/damage.mp3',  () => {}, () => { console.warn('damage.mp3 failed to load');  sndDamage = null; });
-  sndWin    = loadSound('sounds/win.mp3',     () => {}, () => { console.warn('win.mp3 failed to load');     sndWin    = null; });
-  sndWalk   = loadSound('sounds/walking.mp3', () => {}, () => { console.warn('walking.mp3 failed to load'); sndWalk   = null; });
+  sndMusic  = loadSound('assets/sounds/music.mp3',   () => {}, () => { console.warn('music.mp3 failed to load');   sndMusic  = null; });
+  sndJump   = loadSound('assets/sounds/jump.mp3',    () => {}, () => { console.warn('jump.mp3 failed to load');    sndJump   = null; });
+  sndDamage = loadSound('assets/sounds/damage.mp3',  () => {}, () => { console.warn('damage.mp3 failed to load');  sndDamage = null; });
+  sndWin    = loadSound('assets/sounds/win.mp3',     () => {}, () => { console.warn('win.mp3 failed to load');     sndWin    = null; });
+  sndWalk   = loadSound('assets/sounds/walking.mp3', () => {}, () => { console.warn('walking.mp3 failed to load'); sndWalk   = null; });
 }
 
 // Browsers block audio until a real user gesture (keypress/click)
@@ -32,10 +32,12 @@ function loadSounds() {
 // work" even though everything else is wired up correctly — the
 // files load fine, but .play() is silently ignored until this runs.
 function startAudioOnce() {
-  if (audioStarted) return;
-  audioStarted = true;
-  if (typeof userStartAudio === 'function') userStartAudio();
-  if (sndMusic && sndMusic.isLoaded()) {
+  if (!audioStarted) {
+    audioStarted = true;
+    if (typeof userStartAudio === 'function') userStartAudio();
+  }
+
+  if (sndMusic && sndMusic.isLoaded() && !sndMusic.isPlaying()) {
     sndMusic.setVolume(0.4);
     sndMusic.loop();
   }
@@ -69,7 +71,10 @@ const INV_FRAMES = 80;
 let levelTimer      = 0;
 const TIME_LIMIT    = 90 * 60;
 
-let introTimer = 140;
+const INTRO_DISPLAY_FRAMES = 10 * 60;
+const INTRO_FADE_FRAMES = 60;
+let introTimer = INTRO_DISPLAY_FRAMES + INTRO_FADE_FRAMES;
+let introFadeStarted = false;
 
 const FLIP_AT       = [700, 5200];
 let   flipIndex     = 0;
@@ -138,6 +143,7 @@ function setup() {
   charX = width * 0.25;
   charY = groundY();
   loadSounds();   // decoupled from preload — can't block canvas creation
+ 
 }
 
 function windowResized() {
@@ -147,6 +153,8 @@ function windowResized() {
 
 // ─────────────────────────────────────────────────────────
 function draw() {
+  startAudioOnce();
+
   if (gameWon)  { drawWinScreen();  return; }
   if (gameLost) { drawLoseScreen(); return; }
 
@@ -157,6 +165,7 @@ function draw() {
   }
 
   isMoving = false;
+  let movingInput = keyIsDown(65) || keyIsDown(37) || keyIsDown(68) || keyIsDown(39);
   let goLeft  = flipped ? (keyIsDown(68)||keyIsDown(39)) : (keyIsDown(65)||keyIsDown(37));
   let goRight = flipped ? (keyIsDown(65)||keyIsDown(37)) : (keyIsDown(68)||keyIsDown(39));
   if (goLeft)  { worldX -= WALK_SPEED; if (worldX<0) worldX=0; facingLeft=true;  isMoving=true; }
@@ -165,15 +174,20 @@ function draw() {
   // Jump sound
   if ((keyIsDown(32)||keyIsDown(87)||keyIsDown(38)) && onGround) {
     velY=JUMP_FORCE; onGround=false;
-    if (sndJump && sndJump.isLoaded()) { sndJump.stop(); sndJump.play(); }
+    if (sndJump && sndJump.isLoaded()) { sndJump.stop(); sndJump.setVolume(0.1); sndJump.play(); }
   }
 
   // Walking sound
-  if (isMoving && onGround) {
+
+  if (movingInput && isMoving && onGround) {
     walkSoundTimer++;
     if (walkSoundTimer >= 22) {
       walkSoundTimer = 0;
-      if (sndWalk && sndWalk.isLoaded() && !sndWalk.isPlaying()) sndWalk.play();
+      if (sndWalk && sndWalk.isLoaded() && !sndWalk.isPlaying()) {
+        sndWalk.stop();
+        sndWalk.setVolume(2);
+        sndWalk.play();
+      }
     }
   } else { walkSoundTimer = 0; }
 
@@ -210,11 +224,11 @@ function draw() {
   if (worldX >= LEVEL_END) {
     gameWon=true;
     if (sndWin && sndWin.isLoaded()) sndWin.play();
-    if (sndMusic && sndMusic.isLoaded()) sndMusic.stop();
+    if (sndMusic && sndMusic.isLoaded()) sndMusic.stop(); sndMusic.setVolume(0.01);
     return;
   }
   levelTimer++;
-  if (levelTimer >= TIME_LIMIT) { gameLost=true; if (sndMusic && sndMusic.isLoaded()) sndMusic.stop(); return; }
+  if (levelTimer >= TIME_LIMIT) { gameLost=true; if (sndMusic && sndMusic.isLoaded()) sndMusic.stop(); sndMusic.setVolume(0.01);return; }
   if (invTimer > 0) invTimer--;
   else checkDamage();
 
@@ -454,7 +468,7 @@ function checkDamage() {
 
 function takeDamage() {
   hp--; invTimer=INV_FRAMES;
-  if (sndDamage && sndDamage.isLoaded()) { sndDamage.stop(); sndDamage.play(); }
+  if (sndDamage && sndDamage.isLoaded()) { sndDamage.stop(); sndDamage.setVolume(0.15); sndDamage.play(); }
   if (hp<=0) { hp=0; gameLost=true; if (sndMusic && sndMusic.isLoaded()) sndMusic.stop(); }
 }
 
@@ -559,10 +573,13 @@ function drawFlipHUD() {
 
 // ─────────────────────────────────────────────────────────
 function drawIntroOverlay() {
-  let alpha=constrain(map(introTimer,140,60,0,220),0,220);
+  let alpha = introTimer <= INTRO_FADE_FRAMES
+    ? constrain(map(introTimer, INTRO_FADE_FRAMES, 0, 220, 0), 0, 220)
+    : 220;
+
   noStroke(); fill(15,22,14,alpha); rect(0,0,width,height);
-  if (introTimer>55) {
-    let ta=constrain(map(introTimer,140,100,0,255),0,255);
+  if (introTimer > INTRO_FADE_FRAMES) {
+    let ta = 255;
     textAlign(CENTER,CENTER); textFont('Georgia');
     fill(0,0,0,ta*0.6); textStyle(NORMAL); textSize(height*0.022);
     text('Tutorial',width/2+2,height/2-height*0.06+2);
@@ -572,7 +589,7 @@ function drawIntroOverlay() {
     text('Tutorial',width/2,height/2-height*0.06);
     textStyle(BOLD); textSize(height*0.058); fill(225,240,200,ta);
     text('Through the Trees',width/2,height/2);
-    if (introTimer>80) {
+    if (introTimer > INTRO_FADE_FRAMES + 20) {
       fill(150,185,130,ta*0.8); textStyle(NORMAL); textSize(height*0.020);
       text('use A / D to move    SPACE to jump',width/2,height/2+height*0.08);
     }
@@ -623,10 +640,17 @@ function drawWinScreen() {
 // ─────────────────────────────────────────────────────────
 function keyPressed() {
   startAudioOnce();
+
+  if (introTimer > 0 && !introFadeStarted) {
+    introFadeStarted = true;
+    introTimer = INTRO_FADE_FRAMES;
+    return;
+  }
+
   if (key===' ' && (gameWon||gameLost)) {
     gameWon=false; gameLost=false;
     worldX=0; flipped=false; flipTimer=0; flipIndex=0;
-    introTimer=140; countdown=0; countdownTimer=0;
+    introTimer=INTRO_DISPLAY_FRAMES + INTRO_FADE_FRAMES; introFadeStarted=false; countdown=0; countdownTimer=0;
     hp=MAX_HP; invTimer=0; levelTimer=0;
     velY=0; onGround=true;
     charX=width*0.25; charY=groundY();
